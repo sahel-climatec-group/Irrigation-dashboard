@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Irrigation Dashboard</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --border: #475569;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --status-ok: #10b981;
+            --status-alert: #f59e0b;
+            --status-danger: #ef4444;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #94a3b8;
+            --glow-cyan: rgba(6, 182, 212, 0.15);
+            --glow-blue: rgba(59, 130, 246, 0.1);
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            font-feature-settings: "cv11" 1;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: linear-gradient(135deg, #0f172a 0%, #1a1f35 50%, #0f172a 100%);
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ═══════════════════════════════ STATUS BAR ═══════════════════════════════ */
+        .status-bar {
+            position: sticky;
+            top: 0;
+            z-index: 200;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(6, 182, 212, 0.2);
+            padding: 16px 0;
+            font-size: 0.85rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-bar-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+
+        .status-left {
+            display: flex;
+            align-items: center;
+            gap: 40px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--status-ok);
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: var(--status-danger);
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
+            animation: pulse-danger 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+        }
+
+        @keyframes pulse-danger {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.5; }
+        }
+
+        .status-time {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            color: var(--accent-cyan);
+            font-size: 0.95rem;
+            letter-spacing: 1px;
+        }
+
+        .status-right {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+
+        .connection-status {
+            padding: 8px 16px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            border-radius: 6px;
+            color: var(--status-ok);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .connection-status.disconnected {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.4);
+            color: var(--status-danger);
+        }
+
+        /* ═══════════════════════════════ HEADER ═══════════════════════════════ */
+        .header {
+            padding: 48px 0 32px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            letter-spacing: -1.5px;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-weight: 400;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ═══════════════════════════════ ZONES GRID ═══════════════════════════════ */
+        .zones-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        /* ═══════════════════════════════ CARD COMPONENT ═════════════════════════════ */
+        .card-zone {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 16px;
+            padding: 28px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(6, 182, 212, 0.1);
+            backdrop-filter: blur(12px);
+        }
+
+        .card-zone::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card-zone:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 16px 48px rgba(6, 182, 212, 0.2), inset 0 1px 1px rgba(6, 182, 212, 0.2);
+            transform: translateY(-4px);
+        }
+
+        .card-zone:hover::before {
+            opacity: 1;
+        }
+
+        .card-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-title i {
+            color: var(--accent-cyan);
+        }
+
+        /* ═══════════════════════════════ GAUGE RADIAL ═══════════════════════════════ */
+        .gauge-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 24px;
+            margin-top: 16px;
+        }
+
+        .gauge-canvas {
+            max-width: 100%;
+            height: auto;
+            filter: drop-shadow(0 4px 16px rgba(6, 182, 212, 0.15));
+        }
+
+        .gauge-section {
+            margin-bottom: 24px;
+        }
+
+        .gauge-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(51, 65, 85, 0.6);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
+        .gauge-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+            border-radius: 4px;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            box-shadow: 0 0 16px rgba(6, 182, 212, 0.4);
+        }
+
+        /* ═══════════════════════════════ CHART ═══════════════════════════════ */
+        .chart-wrapper {
+            position: relative;
+            height: 240px;
+            margin-top: 24px;
+            background: rgba(6, 182, 212, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid rgba(6, 182, 212, 0.1);
+        }
+
+        /* ═══════════════════════════════ PUMP SECTION ═══════════════════════════════ */
+        .pump-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .card-pump {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 16px;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(6, 182, 212, 0.1);
+            backdrop-filter: blur(12px);
+            transition: all 0.4s ease;
+        }
+
+        .card-pump:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 16px 48px rgba(6, 182, 212, 0.2), inset 0 1px 1px rgba(6, 182, 212, 0.2);
+        }
+
+        .pump-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px;
+            background: rgba(6, 182, 212, 0.08);
+            border-radius: 12px;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
+        .pump-status-indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--status-danger);
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.5);
+        }
+
+        .pump-status-indicator.active {
+            background: var(--status-ok);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.6);
+            animation: pump-pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pump-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.4); }
+        }
+
+        .pump-status-text {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            letter-spacing: 1px;
+        }
+
+        .pump-buttons {
+            display: flex;
+            gap: 16px;
+        }
+
+        .btn-pump {
+            flex: 1;
+            padding: 14px 20px;
+            border: 1.5px solid;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-pump::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: inherit;
+            filter: brightness(1.2);
+            transition: left 0.3s ease;
+            z-index: -1;
+        }
+
+        .btn-pump:hover::before {
+            left: 0;
+        }
+
+        .btn-pump:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-pump.start {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: var(--status-ok);
+            color: var(--status-ok);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-pump.start:hover {
+            background: rgba(16, 185, 129, 0.25);
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-pump.stop {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: var(--status-danger);
+            color: var(--status-danger);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-pump.stop:hover {
+            background: rgba(239, 68, 68, 0.25);
+            box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+        }
+
+        /* ═══════════════════════════════ SYSTEM STATS ═══════════════════════════════ */
+        .stats-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 16px;
+            padding: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(6, 182, 212, 0.1);
+            backdrop-filter: blur(12px);
+            transition: all 0.4s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 16px 48px rgba(6, 182, 212, 0.2), inset 0 1px 1px rgba(6, 182, 212, 0.2);
+            transform: translateY(-4px);
+        }
+
+        .stat-content {
+            flex: 1;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .stat-value {
+            font-family: var(--font-mono);
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+        }
+
+        .stat-unit {
+            font-size: 0.85rem;
+            color: var(--text-tertiary);
+            margin-left: 6px;
+        }
+
+        .stat-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(59, 130, 246, 0.1));
+            border: 1.5px solid rgba(6, 182, 212, 0.3);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-cyan);
+            font-size: 1.6rem;
+            flex-shrink: 0;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.1);
+        }
+
+        /* ═══════════════════════════════ SECTION TITLE ═══════════════════════════════ */
+        .section-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 40px;
+        }
+
+        .section-title i {
+            color: var(--accent-cyan);
+            font-size: 1.1rem;
+        }
+
+        /* ═══════════════════════════════ UTILITIES ═══════════════════════════════ */
+        .container-custom {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 28px;
+        }
+
+        .wifi-bars {
+            display: flex;
+            gap: 4px;
+            align-items: flex-end;
+        }
+
+        .wifi-bar {
+            width: 3px;
+            height: 8px;
+            background: var(--text-tertiary);
+            border-radius: 1px;
+            transition: all 0.3s ease;
+        }
+
+        .wifi-bar.active {
+            background: var(--accent-cyan);
+            box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+        }
+
+        /* ═══════════════════════════════ RESPONSIVE ═══════════════════════════════ */
+        @media (max-width: 768px) {
+            .zones-container {
+                grid-template-columns: 1fr;
+            }
+
+            .pump-section {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-section {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .status-bar-content {
+                flex-wrap: wrap;
+            }
+
+            .status-left {
+                width: 100%;
+                gap: 20px;
+                flex-wrap: wrap;
+            }
+
+            .status-right {
+                width: 100%;
+                justify-content: space-between;
+                gap: 16px;
+            }
+
+            .container-custom {
+                padding: 0 16px;
+            }
+        }
+
+        /* Loading animation */
+        .loading-spinner {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="container-custom">
+            <div class="status-bar-content">
+                <div class="status-left">
+                    <div class="status-item">
+                        <span class="status-indicator" id="mqttIndicator"></span>
+                        <span id="mqttStatus">Connexion...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-time" id="currentTime">00:00:00</span>
+                    </div>
+                    <div class="status-item">
+                        <div class="wifi-bars">
+                            <div class="wifi-bar active"></div>
+                            <div class="wifi-bar active"></div>
+                            <div class="wifi-bar"></div>
+                        </div>
+                        <span id="signalStrength">Signal Optimal</span>
+                    </div>
+                </div>
+                <div class="status-right">
+                    <div class="connection-status" id="connectionBadge">Connecté</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container-custom">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fas fa-droplet"></i> Irrigation Intelligente</h1>
+            <div class="header-subtitle">
+                <i class="fas fa-pulse" style="color: var(--status-ok); font-size: 0.8rem;"></i>
+                <span>Monitoring en temps réel</span>
+                <span style="color: var(--text-tertiary);">•</span>
+                <span>Contrôle centralisé</span>
+            </div>
+        </div>
+
+        <!-- Zones Grid -->
+        <div class="zones-container" id="zones">
+            <div style="grid-column: 1/-1; text-align: center; padding: 60px 40px; color: var(--text-tertiary);">
+                <i class="fas fa-spinner fa-spin loading-spinner" style="font-size: 2.5rem; margin-bottom: 16px; color: var(--accent-cyan);"></i>
+                <p style="font-size: 1rem; margin: 0;">Initialisation des capteurs...</p>
+            </div>
+        </div>
+
+        <!-- Pump Control Section -->
+        <div class="section-title">
+            <i class="fas fa-fan"></i> Contrôle de Pompe
+        </div>
+        <div class="pump-section">
+            <div class="card-pump">
+                <div class="card-title">
+                    <i class="fas fa-fan"></i> Pompe Principale
+                </div>
+                <div class="pump-status">
+                    <div style="display: flex; align-items: center; gap: 14px;">
+                        <span class="pump-status-indicator" id="pumpIndicator"></span>
+                        <span class="pump-status-text" id="pumpStatusText">ARRÊTÉE</span>
+                    </div>
+                </div>
+                <div class="pump-buttons">
+                    <button class="btn-pump start" onclick="pompeOn()" id="btnStart">
+                        <i class="fas fa-play"></i> Démarrer
+                    </button>
+                    <button class="btn-pump stop" onclick="pompeOff()" id="btnStop">
+                        <i class="fas fa-stop"></i> Arrêter
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Statistics -->
+        <div class="section-title" style="margin-bottom: 20px;">
+            <i class="fas fa-chart-line"></i> Statistiques Système
+        </div>
+        <div class="stats-section">
+            <div class="stat-card">
+                <div class="stat-content">
+                    <div class="stat-label">Durée de Fonctionnement</div>
+                    <div>
+                        <span class="stat-value" id="uptime">00:00:00:00</span>
+                        <span class="stat-unit"></span>
+                    </div>
+                </div>
+                <div class="stat-icon">
+                    <i class="fas fa-hourglass-end"></i>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-content">
+                    <div class="stat-label">Consommation Eau</div>
+                    <div>
+                        <span class="stat-value" id="waterConsumption">0</span>
+                        <span class="stat-unit">L</span>
+                    </div>
+                </div>
+                <div class="stat-icon">
+                    <i class="fas fa-droplet"></i>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-content">
+                    <div class="stat-label">Signal Wi-Fi</div>
+                    <div>
+                        <span class="stat-value" id="signalDB">-</span>
+                        <span class="stat-unit">dBm</span>
+                    </div>
+                </div>
+                <div class="stat-icon">
+                    <i class="fas fa-wifi"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const zones = {};
+        const charts = {};
+        const zoneData = {};
+        const gauges = {};
+        let totalSeconds = 0;
+        let waterConsumed = 0;
+        let isConnected = false;
+        
+        // ═══════════════════════════════ CLOCK ═════════════════════════════
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            document.getElementById('currentTime').textContent = `${hours}:${minutes}:${seconds}`;
+        }
+
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // ═══════════════════════════════ SYSTEM STATS ════════════════════════
+        function updateSystemStats() {
+            totalSeconds++;
+
+            const days = Math.floor(totalSeconds / 86400);
+            const hrs = Math.floor((totalSeconds % 86400) / 3600);
+            const mins = Math.floor((totalSeconds % 3600) / 60);
+            const secs = totalSeconds % 60;
+
+            const formattedTime = 
+                String(days).padStart(2, '0') + ":" + 
+                String(hrs).padStart(2, '0') + ":" + 
+                String(mins).padStart(2, '0') + ":" + 
+                String(secs).padStart(2, '0');
+
+            const uptimeElement = document.getElementById('uptime');
+            if (uptimeElement) {
+                uptimeElement.textContent = formattedTime;
+            }
+
+            const pumpIndicator = document.getElementById('pumpIndicator');
+            if (pumpIndicator && pumpIndicator.classList.contains('active')) {
+                waterConsumed += 0.0028;
+                const waterElement = document.getElementById('waterConsumption');
+                if (waterElement) {
+                    waterElement.textContent = waterConsumed.toFixed(1);
+                }
+            }
+        }
+
+        setInterval(updateSystemStats, 1000);
+
+        // ═══════════════════════════════ SOCKET.IO CONNECTION ═══════════════════════════════
+        const socket = io();
+
+        socket.on("connect", () => {
+            console.log("✓ Connecté au serveur Node.js");
+            updateConnectionUI(true);
+        });
+
+        socket.on("disconnect", () => {
+            console.log("✗ Déconnecté du serveur");
+            updateConnectionUI(false);
+        });
+
+        socket.on("mqtt_update", (data) => {
+            const { topic, payload } = data;
+            console.log(`Donnée reçue : ${topic} -> ${payload}`);
+
+            if (topic.includes("humidite")) {
+                const zone = topic.split("/")[1];
+                const valeur = parseInt(payload);
+
+                if (!isNaN(valeur) && valeur >= 0 && valeur <= 100) {
+                    if (!zones[zone]) {
+                        createZone(zone);
+                    }
+                    updateZone(zone, valeur);
+                }
+            }
+
+            if (topic === "jardin/pompe") {
+                const isOn = payload.toUpperCase() === "ON";
+                const indicator = document.getElementById('pumpIndicator');
+                const statusText = document.getElementById('pumpStatusText');
+
+                if (isOn) {
+                    indicator.classList.add('active');
+                    statusText.textContent = 'EN FONCTIONNEMENT';
+                } else {
+                    indicator.classList.remove('active');
+                    statusText.textContent = 'ARRÊTÉE';
+                }
+            }
+        });
+
+        function updateConnectionUI(isConnected) {
+            const indicator = document.getElementById('mqttIndicator');
+            const status = document.getElementById('mqttStatus');
+            const badge = document.getElementById('connectionBadge');
+
+            if (isConnected) {
+                indicator.classList.remove('disconnected');
+                status.textContent = 'Connecté (Relais)';
+                badge.classList.remove('disconnected');
+                badge.textContent = 'Connecté';
+            } else {
+                indicator.classList.add('disconnected');
+                status.textContent = 'Déconnecté';
+                badge.classList.add('disconnected');
+                badge.textContent = 'Déconnecté';
+            }
+        }
+
+        // ═══════════════════════════════ RADIAL GAUGE ═════════════════════════════
+        class RadialGauge {
+            constructor(canvasId, minValue = 0, maxValue = 100) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.minValue = minValue;
+                this.maxValue = maxValue;
+                this.currentValue = 0;
+                this.animationValue = 0;
+                this.dpr = window.devicePixelRatio || 1;
+                this.setupCanvas();
+            }
+
+            setupCanvas() {
+                const rect = this.canvas.getBoundingClientRect();
+                this.canvas.width = rect.width * this.dpr;
+                this.canvas.height = rect.height * this.dpr;
+                this.ctx.scale(this.dpr, this.dpr);
+                this.width = rect.width;
+                this.height = rect.height;
+                this.centerX = this.width / 2;
+                this.centerY = this.height / 2;
+                this.radius = Math.min(this.width, this.height) / 2 - 20;
+            }
+
+            setValue(value) {
+                this.currentValue = Math.max(this.minValue, Math.min(this.maxValue, value));
+                this.animateToValue();
+            }
+
+            animateToValue() {
+                const targetValue = this.currentValue;
+                const steps = 20;
+                let currentStep = 0;
+
+                const animate = () => {
+                    currentStep++;
+                    this.animationValue = this.animationValue + (targetValue - this.animationValue) * 0.1;
+                    this.draw();
+
+                    if (currentStep < steps) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        this.animationValue = targetValue;
+                        this.draw();
+                    }
+                };
+
+                animate();
+            }
+
+            draw() {
+                this.ctx.clearRect(0, 0, this.width, this.height);
+
+                this.ctx.fillStyle = 'rgba(51, 65, 85, 0.4)';
+                this.ctx.beginPath();
+                this.ctx.arc(this.centerX, this.centerY, this.radius + 10, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                this.ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.arc(this.centerX, this.centerY, this.radius + 10, 0, Math.PI * 2);
+                this.ctx.stroke();
+
+                this.drawHighlights();
+                this.drawTicks();
+                this.drawNumbers();
+                this.drawNeedle();
+                this.drawCenter();
+                this.drawValueBox();
+            }
+
+            drawHighlights() {
+                const startAngle = Math.PI * 0.2;
+                const endAngle = Math.PI * 1.8;
+
+                this.ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+                this.ctx.lineWidth = 8;
+                this.ctx.beginPath();
+                this.ctx.arc(this.centerX, this.centerY, this.radius - 15, startAngle, startAngle + (endAngle - startAngle) * 0.3);
+                this.ctx.stroke();
+
+                this.ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)';
+                this.ctx.beginPath();
+                this.ctx.arc(this.centerX, this.centerY, this.radius - 15, startAngle + (endAngle - startAngle) * 0.3, endAngle);
+                this.ctx.stroke();
+            }
+
+            drawTicks() {
+                const startAngle = Math.PI * 0.2;
+                const endAngle = Math.PI * 1.8;
+                const majorTickCount = 11;
+
+                for (let i = 0; i < majorTickCount; i++) {
+                    const angle = startAngle + (endAngle - startAngle) * (i / (majorTickCount - 1));
+
+                    this.ctx.strokeStyle = 'rgba(226, 232, 240, 0.6)';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(
+                        this.centerX + Math.cos(angle) * (this.radius - 5),
+                        this.centerY + Math.sin(angle) * (this.radius - 5)
+                    );
+                    this.ctx.lineTo(
+                        this.centerX + Math.cos(angle) * (this.radius - 15),
+                        this.centerY + Math.sin(angle) * (this.radius - 15)
+                    );
+                    this.ctx.stroke();
+                }
+            }
+
+            drawNumbers() {
+                const startAngle = Math.PI * 0.2;
+                const endAngle = Math.PI * 1.8;
+                const majorTickCount = 11;
+
+                this.ctx.fillStyle = 'rgba(203, 213, 225, 0.8)';
+                this.ctx.font = 'bold 12px Inter, sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+
+                for (let i = 0; i < majorTickCount; i++) {
+                    const angle = startAngle + (endAngle - startAngle) * (i / (majorTickCount - 1));
+                    const value = Math.round((this.maxValue - this.minValue) * (i / (majorTickCount - 1)) + this.minValue);
+
+                    const x = this.centerX + Math.cos(angle) * (this.radius - 35);
+                    const y = this.centerY + Math.sin(angle) * (this.radius - 35);
+
+                    this.ctx.fillText(value, x, y);
+                }
+            }
+
+            drawNeedle() {
+                const startAngle = Math.PI * 0.2;
+                const endAngle = Math.PI * 1.8;
+                const totalAngle = endAngle - startAngle;
+                const percentage = (this.animationValue - this.minValue) / (this.maxValue - this.minValue);
+                const angle = startAngle + totalAngle * percentage;
+
+                this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(
+                    this.centerX + Math.cos(angle) * 5,
+                    this.centerY + Math.sin(angle) * 5
+                );
+                this.ctx.lineTo(
+                    this.centerX + Math.cos(angle) * (this.radius - 28),
+                    this.centerY + Math.sin(angle) * (this.radius - 28)
+                );
+                this.ctx.stroke();
+
+                this.ctx.strokeStyle = 'rgba(6, 182, 212, 0.9)';
+                this.ctx.lineWidth = 3;
+                this.ctx.beginPath();
+                this.ctx.moveTo(
+                    this.centerX + Math.cos(angle) * 5,
+                    this.centerY + Math.sin(angle) * 5
+                );
+                this.ctx.lineTo(
+                    this.centerX + Math.cos(angle) * (this.radius - 30),
+                    this.centerY + Math.sin(angle) * (this.radius - 30)
+                );
+                this.ctx.stroke();
+
+                this.ctx.fillStyle = 'rgba(6, 182, 212, 0.9)';
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    this.centerX + Math.cos(angle) * (this.radius - 30),
+                    this.centerY + Math.sin(angle) * (this.radius - 30),
+                    3,
+                    0,
+                    Math.PI * 2
+                );
+                this.ctx.fill();
+            }
+
+            drawCenter() {
+                this.ctx.strokeStyle = 'rgba(6, 182, 212, 0.8)';
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.arc(this.centerX, this.centerY, 8, 0, Math.PI * 2);
+                this.ctx.stroke();
+
+                this.ctx.fillStyle = 'rgba(6, 182, 212, 0.9)';
+                this.ctx.beginPath();
+                this.ctx.arc(this.centerX, this.centerY, 6, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+
+            drawValueBox() {
+                const boxWidth = 80;
+                const boxHeight = 50;
+                const boxX = this.centerX - boxWidth / 2;
+                const boxY = this.centerY + this.radius - 40;
+
+                this.ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+                this.ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+                this.ctx.strokeStyle = 'rgba(6, 182, 212, 0.6)';
+                this.ctx.lineWidth = 1.5;
+                this.ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+                this.ctx.fillStyle = 'rgba(6, 182, 212, 0.9)';
+                this.ctx.font = 'bold 20px JetBrains Mono, monospace';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(Math.round(this.animationValue), this.centerX, boxY + boxHeight / 2);
+
+                this.ctx.fillStyle = 'rgba(203, 213, 225, 0.7)';
+                this.ctx.font = '11px Inter, sans-serif';
+                this.ctx.fillText('%', this.centerX + 25, boxY + 15);
+            }
+        }
+
+        // ═══════════════════════════════ PUMP CONTROL ═══════════════════════════════
+        function pompeOn() {
+            console.log("Envoi commande pompe: ON");
+            socket.emit('mqtt_publish', {
+                topic: 'jardin/pompe',
+                payload: 'ON'
+            });
+        }
+
+        function pompeOff() {
+            console.log("Envoi commande pompe: OFF");
+            socket.emit('mqtt_publish', {
+                topic: 'jardin/pompe',
+                payload: 'OFF'
+            });
+        }
+
+        // ═══════════════════════════════ ZONE MANAGEMENT ═══════════════════════════════
+        function createZone(zone) {
+            const container = document.getElementById("zones");
+
+            if (container.querySelector('.loading-spinner')) {
+                container.innerHTML = "";
+            }
+
+            if (zones[zone]) return;
+
+            zoneData[zone] = [];
+
+            const card = document.createElement("div");
+            card.className = "card-zone";
+            card.innerHTML = `
+                <div class="card-title">
+                    <i class="fas fa-leaf"></i> Zone ${zone.toUpperCase()}
+                </div>
+                <div class="gauge-container">
+                    <canvas id="${zone}-gauge" class="gauge-canvas" width="280" height="200"></canvas>
+                </div>
+                <div class="gauge-section">
+                    <div class="gauge-bar">
+                        <div class="gauge-bar-fill" id="${zone}-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="${zone}-chart"></canvas>
+                </div>
+            `;
+
+            container.appendChild(card);
+            
+            gauges[zone] = new RadialGauge(`${zone}-gauge`);
+            zones[zone] = true;
+            initChart(zone);
+        }
+
+        function updateZone(zone, valeur) {
+            const fill = document.getElementById(`${zone}-fill`);
+            if (fill) {
+                fill.style.width = valeur + '%';
+            }
+            
+            if (gauges[zone]) {
+                gauges[zone].setValue(valeur);
+            }
+
+            if (zoneData[zone].length >= 30) zoneData[zone].shift();
+            zoneData[zone].push(valeur);
+
+            if (charts[zone]) {
+                charts[zone].data.labels = zoneData[zone].map((_, i) => i + 1);
+                charts[zone].data.datasets[0].data = zoneData[zone];
+                charts[zone].update('none');
+            }
+        }
+
+        // ═══════════════════════════════ CHART INITIALIZATION ═══════════════════════════════
+        function initChart(zone) {
+            const ctx = document.getElementById(`${zone}-chart`).getContext("2d");
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 240);
+            gradient.addColorStop(0, 'rgba(6, 182, 212, 0.3)');
+            gradient.addColorStop(1, 'rgba(6, 182, 212, 0.01)');
+
+            charts[zone] = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: "Humidité (%)",
+                        data: [],
+                        borderColor: 'rgba(6, 182, 212, 0.8)',
+                        backgroundColor: gradient,
+                        tension: 0.4,
+                        fill: true,
+                        borderWidth: 2.5,
+                        pointRadius: 4,
+                        pointBackgroundColor: 'rgba(6, 182, 212, 0.9)',
+                        pointBorderColor: 'rgba(30, 41, 59, 0.8)',
+                        pointBorderWidth: 2,
+                        pointHoverRadius: 6,
+                        pointHoverBackgroundColor: 'rgba(6, 182, 212, 1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 },
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                            titleColor: 'rgba(6, 182, 212, 0.9)',
+                            bodyColor: 'rgba(203, 213, 225, 0.9)',
+                            borderColor: 'rgba(6, 182, 212, 0.3)',
+                            borderWidth: 1,
+                            padding: 12,
+                            displayColors: false,
+                            caretPadding: 10,
+                            titleFont: { size: 13, weight: 'bold' },
+                            bodyFont: { size: 12 }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: 'rgba(6, 182, 212, 0.08)', drawBorder: false },
+                            ticks: {
+                                color: 'rgba(203, 213, 225, 0.6)',
+                                font: { size: 11, family: "'JetBrains Mono', monospace", weight: '600' },
+                                stepSize: 25
+                            }
+                        },
+                        x: {
+                            grid: { display: false, drawBorder: false },
+                            ticks: { color: 'rgba(203, 213, 225, 0.5)', font: { size: 10, family: "'JetBrains Mono', monospace" } }
+                        }
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('resize', () => {
+            Object.keys(gauges).forEach(zone => {
+                gauges[zone].setupCanvas();
+                gauges[zone].draw();
+            });
+        });
+    </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
