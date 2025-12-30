@@ -4,15 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Irrigation Dashboard</title>
-
+    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-    <script src="https://socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
-
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    
     <style>
         :root {
             --bg-primary: #0f172a;
@@ -714,7 +713,7 @@
         let totalSeconds = 0;
         let waterConsumed = 0;
         let isConnected = false;
-
+        
         // ═══════════════════════════════ CLOCK ═════════════════════════════
         function updateClock() {
             const now = new Date();
@@ -759,49 +758,61 @@
 
         setInterval(updateSystemStats, 1000);
 
-        // ═══════════════════════════════ SOCKET.IO CONNECTION ═══════════════════════════════
-        const socket = io();
+        // ═══════════════════════════════ firebase CONNECTION ═══════════════════════════════
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
 
-        socket.on("connect", () => {
-            console.log("✓ Connecté au serveur Node.js");
-            updateConnectionUI(true);
-        });
+         const firebaseConfig = {
+        apiKey: "AIzaSyDu2wuE8vs6iVNWYiMOfPieQtxdhUEpamk",
+        authDomain: "irrigation-intelligente-sahel.firebaseapp.com",
+        databaseURL: "https://irrigation-intelligente-sahel-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "irrigation-intelligente-sahel",
+        storageBucket: "irrigation-intelligente-sahel.firebasestorage.app",
+        messagingSenderId: "287915147704",
+        appId: "1:287915147704:web:9a4c3ca3040a5abd8c0f4d"
+        };
 
-        socket.on("disconnect", () => {
-            console.log("✗ Déconnecté du serveur");
-            updateConnectionUI(false);
-        });
-
-        socket.on("mqtt_update", (data) => {
-            const { topic, payload } = data;
-            console.log(`Donnée reçue : ${topic} -> ${payload}`);
-
-            if (topic.includes("humidite")) {
-                const zone = topic.split("/")[1];
-                const valeur = parseInt(payload);
-
-                if (!isNaN(valeur) && valeur >= 0 && valeur <= 100) {
-                    if (!zones[zone]) {
-                        createZone(zone);
-                    }
-                    updateZone(zone, valeur);
-                }
+        database.ref('humidite').on('value', (snapshot) => {
+             if (snapshot.exists()) {
+                updateConnectionUI(true); 
             }
+    const zonesData = snapshot.val();
+    
+    if (zonesData) {
+        // On boucle sur chaque zone présente dans Firebase
+        for (let zoneId in zonesData) {
+            const valeur = parseInt(zonesData[zoneId]);
 
-            if (topic === "jardin/pompe") {
-                const isOn = payload.toUpperCase() === "ON";
+            if (!isNaN(valeur) && valeur >= 0 && valeur <= 100) {
+                // Si la zone n'existe pas encore sur l'écran, on la crée
+                if (!zones[zoneId]) {
+                    createZone(zoneId);
+                }
+                // On met à jour le visuel (jauge + graphique)
+                updateZone(zoneId, valeur);
+            }
+        }
+    }
+});
+                            //pompe
+
+
+           database.ref('jardin/pompe').on('value', (snapshot) => {
+                const etat = snapshot.val();
+                const isOn = (etat === "ON" || etat === 1);
                 const indicator = document.getElementById('pumpIndicator');
                 const statusText = document.getElementById('pumpStatusText');
+                 if (indicator && statusText) {
 
-                if (isOn) {
-                    indicator.classList.add('active');
-                    statusText.textContent = 'EN FONCTIONNEMENT';
-                } else {
-                    indicator.classList.remove('active');
-                    statusText.textContent = 'ARRÊTÉE';
-                }
-            }
-        });
+                    if (isOn) {
+                        indicator.classList.add('active');
+                        statusText.textContent = 'EN FONCTIONNEMENT';
+                    } else {
+                        indicator.classList.remove('active');
+                        statusText.textContent = 'ARRÊTÉE';
+                    }
+                 };
+           });
 
         function updateConnectionUI(isConnected) {
             const indicator = document.getElementById('mqttIndicator');
@@ -1040,18 +1051,14 @@
         // ═══════════════════════════════ PUMP CONTROL ═══════════════════════════════
         function pompeOn() {
             console.log("Envoi commande pompe: ON");
-            socket.emit('mqtt_publish', {
-                topic: 'jardin/pompe',
-                payload: 'ON'
-            });
+            // On écrit directement dans Firebase
+            database.ref('jardin/pompe').set("ON");
         }
 
         function pompeOff() {
             console.log("Envoi commande pompe: OFF");
-            socket.emit('mqtt_publish', {
-                topic: 'jardin/pompe',
-                payload: 'OFF'
-            });
+            // On écrit directement dans Firebase
+            database.ref('jardin/pompe').set("OFF");
         }
 
         // ═══════════════════════════════ ZONE MANAGEMENT ═══════════════════════════════
@@ -1086,7 +1093,7 @@
             `;
 
             container.appendChild(card);
-
+            
             gauges[zone] = new RadialGauge(`${zone}-gauge`);
             zones[zone] = true;
             initChart(zone);
@@ -1097,7 +1104,7 @@
             if (fill) {
                 fill.style.width = valeur + '%';
             }
-
+            
             if (gauges[zone]) {
                 gauges[zone].setValue(valeur);
             }
@@ -1189,44 +1196,7 @@
     </script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-    <script>
-        const firebaseConfig = {
-        apiKey: "AIzaSyDu2wuE8vs6iVNWYiMOfPieQtxdhUEpamk",
-        authDomain: "irrigation-intelligente-sahel.firebaseapp.com",
-        databaseURL: "https://irrigation-intelligente-sahel-default-rtdb.europe-west1.firebasedatabase.app",
-        projectId: "irrigation-intelligente-sahel",
-        storageBucket: "irrigation-intelligente-sahel.firebasestorage.app",
-        messagingSenderId: "287915147704",
-        appId: "1:287915147704:web:9a4c3ca3040a5abd8c0f4d"
-        };
-                // --- AJOUTE CES LIGNES ICI ---
-          firebase.initializeApp(firebaseConfig);
-          const database = firebase.database();
-        
-          // Écouter l'humidité (Remplace 'Humidite' par le nom exact dans Firebase)
-          database.ref('Humidite').on('value', (snapshot) => {
-              const val = snapshot.val();
-              // On cherche l'élément HTML pour l'humidité. 
-              // Si ton partenaire l'a nommé 'soilMoisture', on met à jour le texte.
-              const el = document.getElementById('soilMoisture'); 
-              if(el) el.textContent = val + "%";
-          });
-        
-          // Écouter l'état de la pompe
-          database.ref('Etat_Pompe').on('value', (snapshot) => {
-              const isAppOn = snapshot.val(); // 1 pour ON, 0 pour OFF
-              const pumpIndicator = document.getElementById('pumpIndicator');
-              if (pumpIndicator) {
-                  if (isAppOn === 1) {
-                      pumpIndicator.classList.add('active');
-                  } else {
-                      pumpIndicator.classList.remove('active');
-                  }
-              }
-          });
-    </script>
+    
+    
 </body>
-</html>
 </html>
