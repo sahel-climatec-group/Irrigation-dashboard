@@ -759,9 +759,6 @@
         setInterval(updateSystemStats, 1000);
 
         // ═══════════════════════════════ firebase CONNECTION ═══════════════════════════════
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-
          const firebaseConfig = {
         apiKey: "AIzaSyDu2wuE8vs6iVNWYiMOfPieQtxdhUEpamk",
         authDomain: "irrigation-intelligente-sahel.firebaseapp.com",
@@ -771,6 +768,8 @@
         messagingSenderId: "287915147704",
         appId: "1:287915147704:web:9a4c3ca3040a5abd8c0f4d"
         };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
 
         database.ref('humidite').on('value', (snapshot) => {
              if (snapshot.exists()) {
