@@ -1201,6 +1201,31 @@
         messagingSenderId: "287915147704",
         appId: "1:287915147704:web:9a4c3ca3040a5abd8c0f4d"
         };
+                // --- AJOUTE CES LIGNES ICI ---
+          firebase.initializeApp(firebaseConfig);
+          const database = firebase.database();
+        
+          // Écouter l'humidité (Remplace 'Humidite' par le nom exact dans Firebase)
+          database.ref('Humidite').on('value', (snapshot) => {
+              const val = snapshot.val();
+              // On cherche l'élément HTML pour l'humidité. 
+              // Si ton partenaire l'a nommé 'soilMoisture', on met à jour le texte.
+              const el = document.getElementById('soilMoisture'); 
+              if(el) el.textContent = val + "%";
+          });
+        
+          // Écouter l'état de la pompe
+          database.ref('Etat_Pompe').on('value', (snapshot) => {
+              const isAppOn = snapshot.val(); // 1 pour ON, 0 pour OFF
+              const pumpIndicator = document.getElementById('pumpIndicator');
+              if (pumpIndicator) {
+                  if (isAppOn === 1) {
+                      pumpIndicator.classList.add('active');
+                  } else {
+                      pumpIndicator.classList.remove('active');
+                  }
+              }
+          });
     </script>
 </body>
 </html>
